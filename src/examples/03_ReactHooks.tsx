@@ -889,7 +889,7 @@ function EventHandlingExample() {
   };
 
   // --- onSubmit: form 제출 ---
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault(); // ❗ 페이지 새로고침 방지
 
     if (inputValue.trim() === '') return;
