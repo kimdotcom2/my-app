@@ -17,6 +17,7 @@
 import {
   useState,
   useEffect,
+  useLayoutEffect,
   useCallback,
   useRef,
   useMemo,
@@ -156,19 +157,14 @@ function UseStateExample() {
           >
             <p style={{ fontWeight: 'bold', color: '#c62828' }}>❌ 직접 변이 (mutation)</p>
             <code style={{ fontSize: 12, display: 'block', margin: '4px 0' }}>
+              // ❌ 직접 변이(mutation) — 같은 참조 → React가 감지 못 함
               user.age = 26;{'\n'}
-              setUser(user); // 같은 참조! → ❌ 리렌더링 안 됨
+              setUser(user); // 참조가 같아 리렌더링 ❌
             </code>
-            <button
-              style={{ background: '#f44336', fontSize: 12, marginTop: 4 }}
-              onClick={() => {
-                // ❌ 직접 객체를 변이한 후 setState — React가 감지 못함!
-                user.age = 99;
-                setUser(user); // 같은 참조 → 리렌더링 ❌
-              }}
-            >
-              잘못된 변경 시도 (변이)
-            </button>
+            <p style={{ fontSize: 11, color: '#c62828', marginTop: 4 }}>
+              ⛔ React 19 컴파일러는 직접 변이를 빌드 타임에 차단합니다.
+              아래 ✅ 올바른 예처럼 새 객체를 생성하세요.
+            </p>
           </div>
 
           {/* ✅ 올바른 예 */}
@@ -186,7 +182,7 @@ function UseStateExample() {
             <code style={{ fontSize: 12, display: 'block', margin: '4px 0' }}>
               setUser(prev =&gt; ({'\n'}
               {'  '}...prev, age: 26{'\n'}
-              })); // 새 참조! → ✅ 리렌더링 됨
+              {'}'})); // 새 참조! → ✅ 리렌더링 됨
             </code>
             <button
               style={{ background: '#4caf50', fontSize: 12, marginTop: 4 }}
@@ -314,6 +310,71 @@ function EffectChild() {
 }
 
 // =============================================================================
+// 2.5 useLayoutEffect — 동기식 레이아웃 측정
+// =============================================================================
+
+/**
+ * 📌 useLayoutEffect는 useEffect와 거의 동일하지만 실행 시점이 다릅니다.
+ *
+ * 실행 순서:
+ * 1. React가 DOM을 업데이트
+ * 2. ↪ useLayoutEffect 실행 (동기, 렌더링 차단됨)
+ * 3. 브라우저가 화면을 그림 (paint)
+ * 4. ↪ useEffect 실행 (비동기)
+ *
+ * 📌 언제 useLayoutEffect를 써야 하나?
+ * - DOM 요소의 크기/위치를 측정해야 할 때 (getBoundingClientRect 등)
+ * - 화면이 그려지기 전에 DOM을 동기적으로 변경해야 할 때
+ * - 플래시(깜빡임)를 방지해야 할 때
+ *
+ * 🚫 대부분의 경우 useEffect를 사용하세요.
+ *   useLayoutEffect는 동기적으로 실행되어 브라우저의 페인트를 차단하므로
+ *   성능에 영향을 줄 수 있습니다. 정말 필요한 경우에만 사용하세요.
+ */
+
+function UseLayoutEffectExample() {
+  const [width, setWidth] = useState(0);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // useLayoutEffect: DOM 측정 후 paint 전에 실행
+  useLayoutEffect(() => {
+    if (ref.current) {
+      const rect = ref.current.getBoundingClientRect();
+      setWidth(rect.width);
+      console.log('📐 useLayoutEffect: 박스 너비 측정 완료', rect.width);
+    }
+  }, []); // 빈 deps: 최초 1회 실행
+
+  return (
+    <div className="card">
+      <h4>📐 useLayoutEffect</h4>
+
+      <div
+        ref={ref}
+        style={{
+          width: '60%',
+          height: 40,
+          background: 'linear-gradient(90deg, #667eea, #764ba2)',
+          borderRadius: 6,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: 'white',
+          fontSize: 14,
+        }}
+      >
+        이 박스의 너비: {width}px
+      </div>
+
+      <p className="example-description" style={{ marginTop: 8 }}>
+        useLayoutEffect는 브라우저가 화면을 그리기(paint) 전에 DOM 측정 결과를
+        가져옵니다. useEffect를 쓰면 깜빡임이 발생할 수 있는 상황에 사용합니다.
+      </p>
+    </div>
+  );
+}
+
+// =============================================================================
 // 3. useCallback — 함수 메모이제이션
 // =============================================================================
 
@@ -438,14 +499,8 @@ function UseRefExample() {
     inputRef.current?.focus();
   }, []);
 
-  // --- (2) 렌더링 간 값 유지: 이전 count 저장 ---
+  // --- (2) 타이머 카운트 (state) ---
   const [count, setCount] = useState(0);
-  const prevCountRef = useRef<number>(0);
-
-  // 현재 count를 이전 값 ref에 저장
-  useEffect(() => {
-    prevCountRef.current = count;
-  }, [count]);
 
   // --- (3) setInterval ID 저장 (cleanup에 활용) ---
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -484,12 +539,16 @@ function UseRefExample() {
         <button onClick={focusInput}>📍 포커스</button>
       </div>
 
-      {/* 이전 값 저장 */}
+      {/* 타이머 */}
       <div style={{ marginTop: 12 }}>
-        <p>현재: {count} | 이전: {prevCountRef.current}</p>
-        <button onClick={startTimer}>▶ 타이머 시작</button>
-        <button onClick={stopTimer}>⏹ 타이머 정지</button>
+        <p>⏱️ 타이머: {count}초</p>
+        <button onClick={startTimer}>▶ 시작</button>
+        <button onClick={stopTimer}>⏹ 정지</button>
         <button onClick={() => setCount(0)}>초기화</button>
+        <p className="example-description">
+          intervalRef에 setInterval ID를 저장하고, cleanup에서 clearInterval.
+          ref.current는 이벤트 핸들러/effect 안에서만 접근해야 합니다 (렌더링 중 ❌).
+        </p>
       </div>
     </div>
   );
@@ -797,6 +856,324 @@ function UseContextExample() {
 }
 
 // =============================================================================
+// 8. 이벤트 핸들링 + TypeScript
+// =============================================================================
+
+/**
+ * 📌 React의 이벤트 시스템은 브라우저 네이티브 이벤트를 감싼
+ *    SyntheticEvent(합성 이벤트)를 사용합니다.
+ *
+ * 📌 TypeScript와 함께 쓸 때 자주 사용하는 이벤트 타입:
+ *
+ *   | 이벤트         | HTML 요소       | TypeScript 타입                                        |
+ *   |----------------|-----------------|-------------------------------------------------------|
+ *   | onChange       | <input>         | React.ChangeEvent<HTMLInputElement>                   |
+ *   | onSubmit       | <form>          | React.FormEvent<HTMLFormElement>                      |
+ *   | onClick        | <button>        | React.MouseEvent<HTMLButtonElement>                   |
+ *   | onKeyDown      | <input>         | React.KeyboardEvent<HTMLInputElement>                 |
+ *   | onFocus        | <input>         | React.FocusEvent<HTMLInputElement>                    |
+ *
+ * 📌 e.preventDefault() — form 제출 시 페이지 새로고침 방지
+ * 📌 e.stopPropagation() — 이벤트 버블링 중단
+ */
+
+/** 이벤트 핸들링을 보여주는 ToDo 입력 폼 */
+function EventHandlingExample() {
+  const [inputValue, setInputValue] = useState('');
+  const [items, setItems] = useState<string[]>([]);
+  const [lastAction, setLastAction] = useState('');
+
+  // --- onChange: input 값 변경 ---
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInputValue(e.target.value);
+  };
+
+  // --- onSubmit: form 제출 ---
+  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault(); // ❗ 페이지 새로고침 방지
+
+    if (inputValue.trim() === '') return;
+
+    setItems(prev => [...prev, inputValue.trim()]);
+    setInputValue('');
+    setLastAction(`✅ 추가: ${inputValue.trim()}`);
+  };
+
+  // --- onClick: 항목 클릭 ---
+  const handleItemClick = (_e: React.MouseEvent<HTMLLIElement>, item: string) => {
+    setLastAction(`👆 클릭: ${item}`);
+  };
+
+  // --- onKeyDown: 키보드 이벤트 ---
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Escape') {
+      setInputValue('');
+      setLastAction('❌ 입력 취소 (Esc)');
+    }
+  };
+
+  return (
+    <div className="card">
+      <h4>🖱️ 이벤트 핸들링 + TypeScript</h4>
+
+      <form onSubmit={handleSubmit}>
+        <input
+          value={inputValue}
+          onChange={handleChange}
+          onKeyDown={handleKeyDown}
+          placeholder="항목을 입력하고 Enter"
+        />
+        <button type="submit">추가</button>
+        <button
+          type="button"
+          onClick={() => {
+            setItems([]);
+            setLastAction('🗑️ 전체 삭제');
+          }}
+        >
+          전체 삭제
+        </button>
+      </form>
+
+      {lastAction && (
+        <p style={{ fontSize: 13, color: '#666', marginTop: 4 }}>{lastAction}</p>
+      )}
+
+      <ul style={{ marginTop: 8 }}>
+        {items.map((item, i) => (
+          <li
+            key={i}
+            onClick={e => handleItemClick(e, item)}
+            style={{ cursor: 'pointer', padding: '2px 4px' }}
+          >
+            {item}
+          </li>
+        ))}
+      </ul>
+
+      {items.length === 0 && (
+        <p style={{ fontSize: 12, color: '#999' }}>항목이 없습니다. 입력 후 Enter를 누르세요.</p>
+      )}
+
+      <div className="example-description">
+        <p>💡 주요 이벤트 타입:</p>
+        <code style={{ fontSize: 12 }}>
+          onChange: React.ChangeEvent&lt;HTMLInputElement&gt;{String.raw`
+`}
+          onSubmit: React.FormEvent&lt;HTMLFormElement&gt;{String.raw`
+`}
+          onClick: React.MouseEvent&lt;HTMLButtonElement&gt;{String.raw`
+`}
+          onKeyDown: React.KeyboardEvent&lt;HTMLInputElement&gt;
+        </code>
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// 9. 제어 컴포넌트 (Controlled Components)
+// =============================================================================
+
+/**
+ * 📌 제어 컴포넌트는 폼 입력값을 React state가 직접 관리하는 방식입니다.
+ *
+ * [패턴] state = 입력값의 유일한 진실 공급원 (single source of truth)
+ *   value={state} + onChange={e => setState(e.target.value)}
+ *
+ * 📌 제어 컴포넌트의 장점:
+ * 1. 입력값을 실시간으로 검증/변환 가능 (영문만, 숫자만 등)
+ * 2. 조건부로 버튼 비활성화 (입력값이 비면 제출 버튼 disabled)
+ * 3. 입력값을 포매팅해서 표시 (전화번호, 카드번호 등)
+ * 4. 여러 입력을 하나의 상태 객체로 관리
+ *
+ * 📌 비제어 컴포넌트와의 차이:
+ * - 비제어: ref로 DOM에서 직접 값을 읽음 (useRef + defaultValue)
+ * - 제어: state로 값을 관리 (권장)
+ */
+
+interface FormData {
+  username: string;
+  email: string;
+  age: string;
+  gender: '' | 'male' | 'female';
+  agree: boolean;
+}
+
+const INITIAL_FORM: FormData = {
+  username: '',
+  email: '',
+  age: '',
+  gender: '',
+  agree: false,
+};
+
+function ControlledFormExample() {
+  // 여러 입력을 하나의 객체 state로 관리
+  const [form, setForm] = useState<FormData>(INITIAL_FORM);
+  const [submitted, setSubmitted] = useState(false);
+
+  // --- 공통 onChange 핸들러: name 속성으로 동적 업데이트 ---
+  const handleChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
+  ) => {
+    const { name, value, type } = e.target;
+
+    // checkbox는 checked 속성 사용, 나머지는 value
+    const newValue = type === 'checkbox'
+      ? (e.target as HTMLInputElement).checked
+      : value;
+
+    setForm(prev => ({ ...prev, [name]: newValue }));
+  };
+
+  // --- 폼 제출 ---
+  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setSubmitted(true);
+  };
+
+  // --- 초기화 ---
+  const handleReset = () => {
+    setForm(INITIAL_FORM);
+    setSubmitted(false);
+  };
+
+  // --- 실시간 검증 ---
+  const isEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email);
+  const isFormValid = form.username.trim() !== ''
+    && isEmailValid
+    && form.age !== ''
+    && form.gender !== ''
+    && form.agree;
+
+  return (
+    <div className="card">
+      <h4>📋 제어 컴포넌트 (Controlled Components)</h4>
+      <p className="example-description">
+        input/select/textarea의 값을 React state가 관리합니다.
+        state가 유일한 진실 공급원(single source of truth)입니다.
+      </p>
+
+      <form onSubmit={handleSubmit}>
+        {/* 텍스트 입력 */}
+        <div style={{ marginBottom: 8 }}>
+          <label>
+            이름:{' '}
+            <input
+              name="username"
+              value={form.username}
+              onChange={handleChange}
+              placeholder="이름 입력"
+              required
+            />
+          </label>
+          {form.username && (
+            <span style={{ fontSize: 12, color: '#4caf50', marginLeft: 8 }}>
+              입력됨 (길이: {form.username.length})
+            </span>
+          )}
+        </div>
+
+        {/* 이메일 입력 + 실시간 검증 */}
+        <div style={{ marginBottom: 8 }}>
+          <label>
+            이메일:{' '}
+            <input
+              name="email"
+              type="email"
+              value={form.email}
+              onChange={handleChange}
+              placeholder="email@example.com"
+              style={{
+                borderColor: form.email && !isEmailValid ? '#f44336' : undefined,
+              }}
+            />
+          </label>
+          {form.email && !isEmailValid && (
+            <span style={{ fontSize: 12, color: '#f44336', marginLeft: 8 }}>
+              ❌ 이메일 형식이 올바르지 않습니다
+            </span>
+          )}
+          {isEmailValid && (
+            <span style={{ fontSize: 12, color: '#4caf50', marginLeft: 8 }}>
+              ✅ 유효한 이메일
+            </span>
+          )}
+        </div>
+
+        {/* 숫자 입력 */}
+        <div style={{ marginBottom: 8 }}>
+          <label>
+            나이:{' '}
+            <input
+              name="age"
+              type="number"
+              value={form.age}
+              onChange={handleChange}
+              placeholder="0"
+              min="0"
+              max="150"
+            />
+          </label>
+        </div>
+
+        {/* Select (드롭다운) */}
+        <div style={{ marginBottom: 8 }}>
+          <label>
+            성별:{' '}
+            <select name="gender" value={form.gender} onChange={handleChange}>
+              <option value="">선택하세요</option>
+              <option value="male">남성</option>
+              <option value="female">여성</option>
+            </select>
+          </label>
+        </div>
+
+        {/* 체크박스 */}
+        <div style={{ marginBottom: 8 }}>
+          <label>
+            <input
+              name="agree"
+              type="checkbox"
+              checked={form.agree}
+              onChange={handleChange}
+            />
+            {' '}약관에 동의합니다
+          </label>
+        </div>
+
+        <div>
+          <button type="submit" disabled={!isFormValid}>
+            제출
+          </button>
+          <button type="button" onClick={handleReset}>
+            초기화
+          </button>
+        </div>
+      </form>
+
+      {/* 제출된 데이터 표시 */}
+      {submitted && (
+        <div
+          style={{
+            marginTop: 12,
+            padding: 12,
+            background: '#e8f5e9',
+            borderRadius: 4,
+          }}
+        >
+          <p style={{ fontWeight: 'bold', color: '#2e7d32' }}>✅ 제출된 데이터</p>
+          <code style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>
+            {JSON.stringify(form, null, 2)}
+          </code>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// =============================================================================
 // 📦 메인 컴포넌트 — 모든 Hook 예제 통합
 // =============================================================================
 
@@ -811,11 +1188,14 @@ export default function ReactHooks() {
 
       <UseStateExample />
       <UseEffectExample />
+      <UseLayoutEffectExample />
       <UseCallbackExample />
       <UseRefExample />
       <UseMemoExample />
       <UseReducerExample />
       <UseContextExample />
+      <EventHandlingExample />
+      <ControlledFormExample />
     </section>
   );
 }
